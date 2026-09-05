@@ -1,0 +1,24 @@
+{
+  "name": "private-s3-pkg-repo",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Private multi-region package repos on S3 via regional gateway VPC endpoints",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.41.9",
+    "astro": "^7.2.9",
+    "sharp": "^0.35.3",
+    "starlight-base-path": "^0.2.1"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

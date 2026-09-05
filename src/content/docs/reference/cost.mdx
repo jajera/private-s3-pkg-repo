@@ -1,0 +1,19 @@
+---
+title: Cost
+description: What bills while the lab runs.
+---
+
+| Resource | Charge |
+| -------- | ------ |
+| Package S3 storage (×2 with replica) | Per GB-month |
+| UI bucket (static site + catalog.json) | Storage + requests |
+| S3 requests | Per 1k |
+| Replication | PUTs + inter-Region data transfer under `repos/` |
+| Rebuild Lambda + ECR | Invocations, duration, image storage |
+| Secrets Manager (lab GPG key) | Secret storage |
+| S3 gateway VPCE | **$0** hourly |
+| SSM interface endpoints | Hourly per AZ (both Regions) |
+| Probe EC2 (×4) | Instance + EBS while running — AL2023 + Ubuntu in Syd and Akl |
+
+Tear down when you are done. `demo.sh down` deletes the lab VPCs, gateways,
+SSM endpoints, probe instances, UI bucket, and Lambda/ECR pieces it created.

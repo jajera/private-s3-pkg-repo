@@ -1,0 +1,87 @@
+---
+title: Architecture
+description: Package trees on S3, Lambda index rebuild, catalog UI, dual-OS consumers.
+---
+
+import Tooltip from "@/components/Tooltip.astro";
+import Diagram from "@/components/Diagram.astro";
+import labArchitecture from "@/assets/diagrams/lab-architecture.svg?raw";
+
+## Overview
+
+One account holds two **private package buckets** and one **public UI bucket**.
+Consumers never call S3 across Regions: each VPC uses a
+<Tooltip term="gateway-vpce" label="gateway VPC endpoint" /> and the **local**
+bucket hostname. <Tooltip term="crr" label="Replication" /> copies the `repos/`
+tree from Sydney to Auckland after you publish.
+
+Indexes live next to the packages. After an rpm or deb lands under
+`repos/*/Packages/` or `repos/*/pool/`, S3 emits to **EventBridge**, which
+invokes the **rebuild Lambda** (image from **ECR**). The rule matches package
+blobs only — not `repodata/` or `dists/` — so index writes do not re-trigger.
+`demo.sh publish` uploads samples and waits for that rebuild; it does not invoke
+Lambda directly. The Lambda runs <Tooltip term="createrepo" label="createrepo_c" />
+and `apt-ftparchive`, **signs repo metadata** with a lab GPG key from
+**Secrets Manager**, writes indexes under `repos/`, and updates `catalog.json`
+(and the public key) on the UI bucket.
+
+Each consumer Region is a dedicated **lab VPC**: private subnet, S3 gateway
+VPCE, **SSM interface VPCEs** (no NAT), and two probes (AL2023 + Ubuntu).
+
+<Diagram
+  src={labArchitecture}
+  alt="Lab architecture: Sydney primary packages with EventBridge, rebuild Lambda, Secrets Manager GPG key, ECR, and catalog UI; Auckland replica; regional S3 gateways and SSM endpoints; dual-OS probes"
+/>
+
+Same tree, regional URL:
+
+```text
+https://<primary>.s3.ap-southeast-2.amazonaws.com/repos/...
+https://<replica>.s3.ap-southeast-6.amazonaws.com/repos/...
+```
+
+Typical layout:
+
+```text
+repos/rpm/al2023/x86_64/Packages/…rpm
+repos/rpm/al2023/x86_64/repodata/…
+repos/deb/ubuntu/noble/pool/…deb
+repos/deb/ubuntu/noble/dists/…
+```
+
+## Who owns what
+
+| Piece | Account | Region |
+| ----- | ------- | ------ |
+| Primary pkgs bucket (+ EventBridge notifications) | Shared | `ap-southeast-2` |
+| Replica pkgs bucket | Shared | `ap-southeast-6` |
+| Catalog UI bucket (public website) | Shared | `ap-southeast-2` |
+| Rebuild Lambda + ECR `ps3p-rebuild` | Shared | `ap-southeast-2` |
+| EventBridge rule on `Packages/*.rpm` + `pool/*.deb` Put | Shared | `ap-southeast-2` |
+| Secrets Manager lab GPG signing key | Shared | `ap-southeast-2` |
+| IAM: CRR, publisher, Lambda execution | Shared | global |
+| Lab VPC + S3 gateway + SSM interface VPCEs | Same account | each Region |
+| IAM: probe EC2 role + instance profile | Same account | each Region |
+| AL2023 + Ubuntu probes | Same account | each Region |
+
+Package-bucket policies deny `GetObject` unless `aws:SourceVpce` matches an
+allowlisted gateway. Admin, CRR, publisher, and rebuild Lambda principals get a
+bypass. The UI bucket stays public read for the static site only — it does not
+host packages.
+
+SSM interface endpoints (`ssm`, `ssmmessages`, and `ec2messages` where the
+service exists) are how probes register for Run Command without a NAT gateway.
+Auckland may skip `ec2messages` when that service is unavailable.
+
+Consumers install the lab public key from `repos/gpg/lab-signing.asc` on the
+**local** package bucket, then use `repo_gpgcheck=1` (dnf) and `signed-by=`
+(apt). Package-level `gpgcheck` for the sample EPEL RPM stays off — that
+signature is upstream’s, not the lab key.
+
+## Out of scope
+
+- Full Pulp (or other long-lived repo servers)
+- Public package download from the catalog viewer
+- Hosting the viewer on the private package buckets
+- CodeBuild / schedule-first index rebuild
+- Package re-signing (metadata only)

@@ -1,0 +1,226 @@
+---
+title: Consumer
+description: Dual-OS probes (AL2023 + Ubuntu) behind regional gateway VPCEs.
+---
+
+import { Steps, Aside } from "@astrojs/starlight/components";
+import Checklist from "@/components/Checklist.astro";
+import Diagram from "@/components/Diagram.astro";
+import consumerDiagram from "@/assets/diagrams/consumer.svg?raw";
+
+<Checklist
+  id="consumer"
+  items={[
+    "Lab VPC + private subnet in Sydney and Auckland",
+    "S3 gateway on each lab route table",
+    "AL2023 + Ubuntu 24.04 probes with SSM + S3 read",
+    "SSM interface endpoints (no NAT)",
+  ]}
+/>
+
+## Overview
+
+`demo.sh up-consumer` builds a **dedicated private VPC** for the lab in that
+Region (Sydney `10.80.0.0/16`, Auckland `10.81.0.0/16`): one subnet, a route
+table, an S3 gateway endpoint, SSM interface endpoints, and **two** probe EC2
+instances (AL2023 + Ubuntu 24.04) with no public IP. You do not bring your own
+VPC.
+
+Run it for **both** Sydney and Auckland before allowlist / prove.
+
+<Aside type="caution">
+  These lab VPCs have <strong>no NAT gateway</strong>. Probes can reach regional
+  S3 (gateway VPCE) and SSM (interface VPCEs) only — not the public internet or
+  Amazon Linux / Ubuntu archives. That is intentional for the private-repo
+  proof; see [Prove](/deploy-and-operate/prove/) for how to use only the lab
+  yum/apt source.
+</Aside>
+
+<Diagram
+  src={consumerDiagram}
+  alt="Per Region lab VPC with AL2023 and Ubuntu probes, S3 gateway endpoint to the regional package bucket, and SSM interface endpoints"
+/>
+
+## Steps
+
+<Steps>
+
+1. Sydney:
+
+   ```bash frame="terminal"
+   export AWS_PROFILE=sandbox
+   ./scripts/demo.sh up-consumer syd
+   ```
+
+   ```text
+   up-consumer syd complete: vpc=vpc-<id> al2023=i-<id> ubuntu=i-<id> gateway_vpce=vpce-<id>
+   ```
+
+2. Auckland:
+
+   ```bash frame="terminal"
+   export AWS_PROFILE=sandbox
+   ./scripts/demo.sh up-consumer akl
+   ```
+
+   ```text
+   up-consumer akl complete: vpc=vpc-<id> al2023=i-<id> ubuntu=i-<id> gateway_vpce=vpce-<id>
+   ```
+
+   In Auckland, `com.amazonaws.ap-southeast-6.ec2messages` does not exist. The
+   script skips it and keeps `ssm` + `ssmmessages`. SSM Run Command still works
+   once instances are Online.
+
+</Steps>
+
+<Aside type="note">
+  Private subnet on purpose: S3 goes through the gateway endpoint, SSM through
+  interface endpoints. Tear the VPCs down with <code>demo.sh down</code>.
+</Aside>
+
+## Verify
+
+Wait until both OS probes report SSM `Online` in each Region (often 1–2 minutes
+after launch). Load instance IDs once:
+
+```bash frame="terminal"
+SYD_AL="$(jq -r .consumers.syd.al2023.instance_id .lab-state.json)"
+SYD_UB="$(jq -r .consumers.syd.ubuntu.instance_id .lab-state.json)"
+AKL_AL="$(jq -r .consumers.akl.al2023.instance_id .lab-state.json)"
+AKL_UB="$(jq -r .consumers.akl.ubuntu.instance_id .lab-state.json)"
+```
+
+### Sydney
+
+```bash frame="terminal"
+aws ssm describe-instance-information \
+  --filters "Key=InstanceIds,Values=${SYD_AL}" \
+  --region ap-southeast-2 \
+  --query 'InstanceInformationList[0].PingStatus' --output text
+```
+
+```text
+Online
+```
+
+```bash frame="terminal"
+aws ssm describe-instance-information \
+  --filters "Key=InstanceIds,Values=${SYD_UB}" \
+  --region ap-southeast-2 \
+  --query 'InstanceInformationList[0].PingStatus' --output text
+```
+
+```text
+Online
+```
+
+```bash frame="terminal"
+jq .consumers.syd .lab-state.json
+```
+
+```json
+{
+  "region": "ap-southeast-2",
+  "bucket": "ps3p-pkgs-**ACCOUNT**-syd",
+  "vpc_id": "vpc-<id>",
+  "subnet_id": "subnet-<id>",
+  "route_table_id": "rtb-<id>",
+  "created_vpc": true,
+  "gateway_vpce_id": "vpce-<id>",
+  "s3_vpce_id": "vpce-<id>",
+  "created_s3_vpce": true,
+  "instance_profile": "ps3p-syd-<suffix>-ec2",
+  "role_name": "ps3p-syd-<suffix>-ec2",
+  "sg_ec2": "sg-<id>",
+  "sg_ssm": "sg-<id>",
+  "ssm_vpce_ids": [
+    "vpce-<id>",
+    "vpce-<id>",
+    "vpce-<id>"
+  ],
+  "al2023": {
+    "instance_id": "i-<id>",
+    "ami_id": "ami-<id>",
+    "os": "al2023"
+  },
+  "ubuntu": {
+    "instance_id": "i-<id>",
+    "ami_id": "ami-<id>",
+    "os": "ubuntu"
+  }
+}
+```
+
+### Auckland
+
+```bash frame="terminal"
+aws ssm describe-instance-information \
+  --filters "Key=InstanceIds,Values=${AKL_AL}" \
+  --region ap-southeast-6 \
+  --query 'InstanceInformationList[0].PingStatus' --output text
+```
+
+```text
+Online
+```
+
+```bash frame="terminal"
+aws ssm describe-instance-information \
+  --filters "Key=InstanceIds,Values=${AKL_UB}" \
+  --region ap-southeast-6 \
+  --query 'InstanceInformationList[0].PingStatus' --output text
+```
+
+```text
+Online
+```
+
+```bash frame="terminal"
+jq .consumers.akl .lab-state.json
+```
+
+```json
+{
+  "region": "ap-southeast-6",
+  "bucket": "ps3p-pkgs-**ACCOUNT**-akl",
+  "vpc_id": "vpc-<id>",
+  "subnet_id": "subnet-<id>",
+  "route_table_id": "rtb-<id>",
+  "created_vpc": true,
+  "gateway_vpce_id": "vpce-<id>",
+  "s3_vpce_id": "vpce-<id>",
+  "created_s3_vpce": true,
+  "instance_profile": "ps3p-akl-<suffix>-ec2",
+  "role_name": "ps3p-akl-<suffix>-ec2",
+  "sg_ec2": "sg-<id>",
+  "sg_ssm": "sg-<id>",
+  "ssm_vpce_ids": [
+    "vpce-<id>",
+    "vpce-<id>"
+  ],
+  "al2023": {
+    "instance_id": "i-<id>",
+    "ami_id": "ami-<id>",
+    "os": "al2023"
+  },
+  "ubuntu": {
+    "instance_id": "i-<id>",
+    "ami_id": "ami-<id>",
+    "os": "ubuntu"
+  }
+}
+```
+
+| Check | Syd | Akl |
+| ----- | --- | --- |
+| VPC CIDR | `10.80.0.0/16` | `10.81.0.0/16` |
+| S3 gateway | `vpce-<id>` | `vpce-<id>` |
+| AL2023 | `i-<id>` @ `10.80.1.x` | `i-<id>` @ `10.81.1.x` |
+| Ubuntu | `i-<id>` @ `10.80.1.x` | `i-<id>` @ `10.81.1.x` |
+| Public IP | none | none |
+| SSM | `Online` on both | `Online` on both |
+| SSM interface VPCEs | 3 (`ssm`, `ssmmessages`, `ec2messages`) | 2 (`ssm`, `ssmmessages`; no `ec2messages`) |
+
+## Next
+
+[Allowlist](/deploy-and-operate/allowlist/)

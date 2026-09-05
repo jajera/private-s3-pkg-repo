@@ -1,0 +1,227 @@
+---
+title: Allowlist
+description: Lock package-bucket GetObject to consumer gateway VPCE IDs; UI stays public.
+---
+
+import { Steps, Aside } from "@astrojs/starlight/components";
+import Checklist from "@/components/Checklist.astro";
+import Diagram from "@/components/Diagram.astro";
+import allowlistDiagram from "@/assets/diagrams/allowlist.svg?raw";
+
+<Checklist
+  id="allowlist"
+  items={[
+    "Syd VPCE IDs on the primary package bucket",
+    "Akl VPCE IDs on the replica package bucket",
+    "Publisher / admin / CRR / Lambda still bypass Get deny",
+    "UI bucket left public (unchanged)",
+  ]}
+/>
+
+## Overview
+
+`demo.sh allowlist` rewrites **package** bucket policies from `.lab-state.json`.
+The public catalog UI bucket is **not** touched — it stays a public website.
+
+Same shape on primary and replica; only the gateway ID list changes.
+
+**Who can read packages from the replica (`…-pkgs-…-akl`):**
+
+1. **Auckland S3 gateway VPCE** (`aws:SourceVpce`): `GetObject` / `ListBucket`
+   for the Akl probes
+2. **SSO admin, CRR, publisher, rebuild Lambda**: bypass principals
+3. Everyone else (internet, wrong Region gateway): denied on Get
+
+The Sydney gateway is **not** on the replica allowlist.
+
+Policy SIDs (package buckets):
+
+- **AllowAdminAndRoles**: full `s3:*` for admin + CRR + publisher + Lambda
+- **AllowSSLRequestsOnly**: deny non-TLS
+- **DenyGetUnlessVpce**: deny `GetObject` unless `aws:SourceVpce` matches (bypass
+  ARNs exempt)
+- **AllowVpceRead**: allow `GetObject` / `ListBucket` via that VPCE
+
+If a Region has no consumer yet, that package bucket only gets the bypass + TLS
+statements (no VPCE lock). Run `up-consumer` in **both** Regions first, then
+allowlist once.
+
+<Diagram
+  src={allowlistDiagram}
+  alt="Internet Get denied on package buckets; probes via S3 gateway allowed; UI bucket remains public; SSO admin and roles bypass"
+/>
+
+## Steps
+
+<Steps>
+
+1. Apply policies from state (needs Syd and Akl gateway VPCE IDs):
+
+   ```bash frame="terminal"
+   export AWS_PROFILE=sandbox
+   ./scripts/demo.sh allowlist
+   ```
+
+   ```text
+   allowlist applied to package buckets only (syd=["vpce-<id>"] akl=["vpce-<id>"]); UI bucket unchanged
+   ```
+
+</Steps>
+
+## Verify
+
+```bash frame="terminal"
+PRIMARY="$(jq -r .primary_bucket .lab-state.json)"
+REPLICA="$(jq -r .replica_bucket .lab-state.json)"
+UI="$(jq -r .ui_bucket .lab-state.json)"
+KEY=repos/_lab/allowlist-verify.txt
+SYD_AL="$(jq -r .consumers.syd.al2023.instance_id .lab-state.json)"
+```
+
+### Seed object (admin bypass)
+
+```bash frame="terminal"
+echo "allowlist verify" | aws s3 cp - "s3://${PRIMARY}/${KEY}" --region ap-southeast-2
+```
+
+```text
+upload: - to s3://ps3p-pkgs-**ACCOUNT**-syd/repos/_lab/allowlist-verify.txt
+```
+
+### Primary (Sydney pkgs)
+
+```bash frame="terminal"
+aws s3api get-bucket-policy --bucket "$PRIMARY" --region ap-southeast-2 \
+  --query Policy --output text | jq '.Statement[] | {Sid, Effect}'
+```
+
+```json
+{ "Sid": "AllowAdminAndRoles", "Effect": "Allow" }
+{ "Sid": "AllowSSLRequestsOnly", "Effect": "Deny" }
+{ "Sid": "DenyGetUnlessVpce", "Effect": "Deny" }
+{ "Sid": "AllowVpceRead", "Effect": "Allow" }
+```
+
+```bash frame="terminal"
+aws s3api get-bucket-policy --bucket "$PRIMARY" --region ap-southeast-2 \
+  --query Policy --output text \
+  | jq -r '.Statement[] | select(.Sid=="DenyGetUnlessVpce")
+      | .Condition.StringNotEquals["aws:SourceVpce"]'
+```
+
+```text
+vpce-<id>
+```
+
+(With a single gateway ID, IAM stores `aws:SourceVpce` as a string; multiple
+IDs would be an array.)
+
+### Replica (Auckland pkgs)
+
+```bash frame="terminal"
+aws s3api get-bucket-policy --bucket "$REPLICA" --region ap-southeast-6 \
+  --query Policy --output text | jq '.Statement[] | {Sid, Effect}'
+```
+
+```json
+{ "Sid": "AllowAdminAndRoles", "Effect": "Allow" }
+{ "Sid": "AllowSSLRequestsOnly", "Effect": "Deny" }
+{ "Sid": "DenyGetUnlessVpce", "Effect": "Deny" }
+{ "Sid": "AllowVpceRead", "Effect": "Allow" }
+```
+
+```bash frame="terminal"
+aws s3api get-bucket-policy --bucket "$REPLICA" --region ap-southeast-6 \
+  --query Policy --output text \
+  | jq -r '.Statement[] | select(.Sid=="DenyGetUnlessVpce")
+      | .Condition.StringNotEquals["aws:SourceVpce"]'
+```
+
+```text
+vpce-<id>
+```
+
+### UI bucket (unchanged / still public)
+
+```bash frame="terminal"
+aws s3api get-bucket-policy --bucket "$UI" --region ap-southeast-2 \
+  --query Policy --output text | jq '.Statement[] | {Sid, Effect}'
+```
+
+```json
+{ "Sid": "PublicReadWebsite", "Effect": "Allow" }
+```
+
+```bash frame="terminal"
+curl -sS -o /dev/null -w "ui_index %{http_code}\n" \
+  "http://${UI}.s3-website-ap-southeast-2.amazonaws.com/"
+```
+
+```text
+ui_index 200
+```
+
+### Deny anonymous package Get
+
+```bash frame="terminal"
+curl -sS -o /tmp/allowlist-curl.body -w 'http_code=%{http_code}\n' \
+  "https://${PRIMARY}.s3.ap-southeast-2.amazonaws.com/${KEY}"
+head -c 160 /tmp/allowlist-curl.body; echo
+```
+
+```text
+http_code=403
+<?xml version="1.0" encoding="UTF-8"?>
+<Error><Code>AccessDenied</Code><Message>Access Denied</Message>...
+```
+
+```bash frame="terminal"
+aws s3api head-object --bucket "$PRIMARY" --key "$KEY" \
+  --region ap-southeast-2 --no-sign-request
+```
+
+```text
+aws: [ERROR]: An error occurred (403) when calling the HeadObject operation: Forbidden
+```
+
+### Allow admin + Syd probe
+
+```bash frame="terminal"
+aws s3api head-object --bucket "$PRIMARY" --key "$KEY" \
+  --region ap-southeast-2 --query ContentLength --output text
+```
+
+```text
+17
+```
+
+```bash frame="terminal"
+CMD_ID=$(aws ssm send-command \
+  --instance-ids "$SYD_AL" \
+  --document-name AWS-RunShellScript \
+  --parameters "commands=[\"aws s3api head-object --bucket $PRIMARY --key $KEY --region ap-southeast-2 --query ContentLength --output text\"]" \
+  --region ap-southeast-2 \
+  --query 'Command.CommandId' --output text)
+aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$SYD_AL" \
+  --region ap-southeast-2 \
+  --query '{Status:Status,StdOut:StandardOutputContent}' --output json
+```
+
+```json
+{
+  "Status": "Success",
+  "StdOut": "17\n"
+}
+```
+
+<Aside type="note">
+  Your laptop SSO session is a bypass principal, so signed CLI from the laptop
+  still works on package buckets. That is intentional for publish and ops. The
+  VPCE deny blocks anonymous traffic and non-bypass roles that are not coming
+  through a listed gateway. The UI website endpoint is HTTP-only (no TLS deny
+  on that bucket).
+</Aside>
+
+## Next
+
+[Publish](/deploy-and-operate/publish/)

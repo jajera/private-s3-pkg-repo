@@ -1,0 +1,44 @@
+---
+title: "Lab findings: New Zealand"
+description: Cross-Region PrivateLink does not cover ap-southeast-6, so this lab replicates the repos to an Auckland bucket instead.
+---
+
+import Tooltip from "@/components/Tooltip.astro";
+
+## Overview
+
+AWS shipped <Tooltip term="xr-privatelink" label="cross-Region PrivateLink" />
+for some Region pairs in late 2024. Sydney was in that launch set; Auckland
+(`ap-southeast-6`) was not
+([What's New, Nov 2024](https://aws.amazon.com/about-aws/whats-new/2024/11/aws-privatelink-across-region-connectivity/)).
+
+Checked again **as of Sep 2026**. Coverage can change, so re-run discovery
+before you assume Auckland is still out.
+
+## What we checked
+
+| Consumer Region | Service Region | XR discovery |
+| --------------- | -------------- | ------------ |
+| `ap-southeast-2` | `ap-southeast-6` | Empty / invalid |
+| `ap-southeast-6` | `ap-southeast-2` | Empty / invalid |
+
+Cross-Region PrivateLink into or out of Auckland fails both ways. You cannot
+privately read the Sydney package bucket from an Auckland VPC (or the reverse)
+on that path, so an Auckland `dnf` / `apt` host can't fetch Sydney repos over
+PrivateLink.
+
+## What to do instead
+
+Skip Syd↔Akl private package reads over cross-Region PrivateLink. Instead
+replicate the `repos/` prefix to an Auckland replica bucket and let Auckland
+consumers read it through a regional S3 gateway endpoint (what this lab builds).
+See [Replication Sydney → Auckland](/concepts/crr-syd-akl/) and
+[Gateway VPC endpoint](/concepts/gateway-vpce/).
+
+## Extra note (Auckland SSM)
+
+When creating the Auckland consumer,
+`com.amazonaws.ap-southeast-6.ec2messages` returned `InvalidServiceName`.
+Session Manager still reached **Online** with only `ssm` + `ssmmessages`
+interface endpoints. `demo.sh` skips missing services and needs at least those
+two.

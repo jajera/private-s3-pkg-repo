@@ -1,0 +1,132 @@
+---
+interface Props {
+  /** Filename under public/, e.g. catalog-ui-screenshot.png */
+  src: string;
+  alt: string;
+}
+
+const { src, alt } = Astro.props;
+const href = `${import.meta.env.BASE_URL}${src.replace(/^\//, "")}`;
+const dialogId = `doc-image-${src.replace(/[^a-zA-Z0-9]+/g, "-")}`;
+---
+
+<figure class="doc-image not-content">
+  <button
+    type="button"
+    class="doc-image__trigger"
+    aria-haspopup="dialog"
+    aria-controls={dialogId}
+    aria-label={`Expand image: ${alt}`}
+  >
+    <img src={href} alt={alt} loading="lazy" decoding="async" />
+  </button>
+</figure>
+
+<dialog id={dialogId} class="doc-image__dialog">
+  <form method="dialog" class="doc-image__close-form">
+    <button type="submit" class="doc-image__close" aria-label="Close expanded image"
+      >Close</button
+    >
+  </form>
+  <img src={href} alt={alt} class="doc-image__zoomed" />
+</dialog>
+
+<script>
+  function wireDocImageZoom() {
+    for (const trigger of document.querySelectorAll(".doc-image__trigger")) {
+      if (trigger.dataset.zoomWired) continue;
+      trigger.dataset.zoomWired = "1";
+      const dialogId = trigger.getAttribute("aria-controls");
+      const dialog = dialogId
+        ? (document.getElementById(dialogId) as HTMLDialogElement | null)
+        : null;
+      if (!dialog) continue;
+
+      trigger.addEventListener("click", () => {
+        dialog.showModal();
+      });
+
+      dialog.addEventListener("click", (event) => {
+        if (event.target === dialog) dialog.close();
+      });
+    }
+  }
+
+  wireDocImageZoom();
+  document.addEventListener("astro:page-load", wireDocImageZoom);
+</script>
+
+<style>
+  .doc-image {
+    margin: 1rem 0 1.5rem;
+  }
+
+  .doc-image__trigger {
+    display: inline-block;
+    max-width: 100%;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: transparent;
+    cursor: zoom-in;
+    border-radius: 0.5rem;
+    line-height: 0;
+  }
+
+  .doc-image__trigger img {
+    display: block;
+    width: auto;
+    max-width: min(100%, 720px);
+    height: auto;
+    border-radius: 0.5rem;
+    border: 1px solid var(--sl-color-gray-5);
+  }
+
+  .doc-image__trigger:focus-visible {
+    outline: 2px solid var(--sl-color-accent);
+    outline-offset: 3px;
+  }
+
+  .doc-image__dialog {
+    width: fit-content;
+    max-width: min(96vw, 1200px);
+    max-height: 96vh;
+    margin: auto;
+    padding: 1rem;
+    border: none;
+    border-radius: 0.75rem;
+    background: var(--sl-color-bg, #fff);
+    box-shadow: 0 16px 48px rgb(0 0 0 / 35%);
+  }
+
+  .doc-image__dialog::backdrop {
+    background: rgb(0 0 0 / 72%);
+  }
+
+  .doc-image__close-form {
+    display: flex;
+    justify-content: flex-end;
+    margin: 0 0 0.5rem;
+  }
+
+  .doc-image__close {
+    cursor: pointer;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 999px;
+    padding: 0.25rem 0.75rem;
+    background: var(--sl-color-bg-nav, #f6f6f6);
+    color: var(--sl-color-text);
+    font: inherit;
+    font-size: 0.875rem;
+  }
+
+  .doc-image__zoomed {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: min(96vw - 2rem, 1200px);
+    max-height: calc(96vh - 3.5rem);
+    margin: 0 auto;
+    object-fit: contain;
+  }
+</style>

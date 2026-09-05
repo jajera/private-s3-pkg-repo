@@ -1,0 +1,152 @@
+---
+title: Prerequisites
+description: Accounts, CLI, Docker (Lambda image), profiles, and Regions.
+---
+
+import Checklist from "@/components/Checklist.astro";
+import { Tabs, TabItem, Aside } from "@astrojs/starlight/components";
+
+<Checklist
+  id="prereq"
+  items={[
+    "AWS CLI v2 installed and logged in",
+    "jq installed",
+    "Docker available (build rebuild Lambda image)",
+    "Shared account profile (docs use sandbox)",
+    "Opted into ap-southeast-6 if needed",
+  ]}
+/>
+
+## Overview
+
+Everything goes through `./scripts/demo.sh`. You need permission to create S3
+buckets, IAM roles, VPC endpoints, Lambda/ECR, and (for prove) EC2 + SSM. Each
+Region gets **two** probe AMIs: Amazon Linux 2023 and Ubuntu 24.04.
+
+## AWS CLI and Region
+
+Install AWS CLI v2 if you do not have it yet.
+
+<Tabs syncKey="os">
+  <TabItem label="macOS">
+
+```bash frame="terminal"
+brew install awscli
+# already installed:
+brew upgrade awscli
+```
+
+  </TabItem>
+  <TabItem label="Linux">
+
+```bash frame="terminal"
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install
+# already installed:
+sudo ./aws/install --update
+```
+
+  </TabItem>
+</Tabs>
+
+Check the version and that credentials work:
+
+```bash frame="terminal"
+aws --version
+aws sts get-caller-identity
+```
+
+Primary Region is `ap-southeast-2` (Sydney). Replica is `ap-southeast-6`
+(Auckland). Your credentials need S3, IAM, and EC2 in both.
+
+## jq
+
+`demo.sh` uses `jq` for state and policy JSON. Install it if you need to:
+
+<Tabs syncKey="os">
+  <TabItem label="macOS">
+
+```bash frame="terminal"
+brew install jq
+```
+
+  </TabItem>
+  <TabItem label="Linux">
+
+```bash frame="terminal"
+# Fedora / RHEL
+sudo dnf install jq
+# Debian / Ubuntu
+sudo apt install jq
+```
+
+  </TabItem>
+</Tabs>
+
+Check the version:
+
+```bash frame="terminal"
+jq --version
+```
+
+## Docker
+
+Docker is required for `up-shared`: it builds and pushes the rebuild Lambda
+image to ECR. Index rebuild always runs in that Lambda — there is no laptop
+fallback.
+
+Install Docker if you do not have it yet.
+
+<Tabs syncKey="os">
+  <TabItem label="macOS">
+
+```bash frame="terminal"
+brew install --cask docker
+# then launch Docker Desktop once so the daemon starts
+open -a Docker
+```
+
+  </TabItem>
+  <TabItem label="Linux">
+
+```bash frame="terminal"
+# Fedora / RHEL
+sudo dnf install docker
+sudo systemctl enable --now docker
+# Debian / Ubuntu
+sudo apt install docker.io
+sudo systemctl enable --now docker
+# run docker without sudo (log out/in after):
+sudo usermod -aG docker "$USER"
+```
+
+  </TabItem>
+</Tabs>
+
+Check the daemon is running:
+
+```bash frame="terminal"
+docker version
+```
+
+<Aside type="note">
+  Without Docker, <code>up-shared</code> fails before the Lambda is wired, and
+  <code>publish</code> cannot rebuild indexes.
+</Aside>
+
+## Environment
+
+```bash frame="terminal"
+export AWS_PROFILE=sandbox
+```
+
+That is enough. `demo.sh` picks the Region per command (and passes `--region`
+explicitly), so a leftover `AWS_REGION` in your shell will not send Auckland
+calls to Sydney.
+
+`up-consumer` builds its own private VPC. You do not pass a VPC or subnet ID.
+
+## Next
+
+[Shared buckets](/deploy-and-operate/shared-buckets/)

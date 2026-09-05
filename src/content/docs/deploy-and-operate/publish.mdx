@@ -1,0 +1,207 @@
+---
+title: Publish
+description: Upload sample rpm/deb, rebuild indexes, wait for CRR, refresh catalog.json.
+---
+
+import { Steps, Aside } from "@astrojs/starlight/components";
+import Checklist from "@/components/Checklist.astro";
+import Diagram from "@/components/Diagram.astro";
+import DocImage from "@/components/DocImage.astro";
+import publishDiagram from "@/assets/diagrams/publish.svg?raw";
+
+<Checklist
+  id="publish"
+  items={[
+    "Sample rpm + deb under repos/ on the primary",
+    "Indexes present (repodata + dists)",
+    "Same keys on the replica after CRR",
+    "catalog.json updated on the UI bucket",
+  ]}
+/>
+
+## Overview
+
+`demo.sh publish` downloads pinned sample packages (EPEL `hello` RPM, Ubuntu
+archive `hello` deb), uploads them via the **publisher** role when assumable,
+and waits for **EventBridge** to invoke the rebuild Lambda (on
+`Packages/*.rpm` and `pool/*.deb` Puts only). The Lambda rebuilds indexes,
+signs metadata, and refreshes `catalog.json`. Index keys under `repodata/` /
+`dists/` do not match the EventBridge pattern, so rebuilds do not loop.
+Publish then waits for CRR including signature objects.
+
+Keys from this lab run:
+
+```text
+repos/rpm/al2023/x86_64/Packages/hello-2.12.2-1.el9.x86_64.rpm
+repos/deb/ubuntu/noble/pool/main/h/hello/hello_2.10-3build1_amd64.deb
+```
+
+<Diagram
+  src={publishDiagram}
+  alt="Publisher uploads packages under repos/; Lambda rebuilds indexes; CRR copies tree to Auckland; catalog.json lands on UI bucket"
+/>
+
+## Steps
+
+<Steps>
+
+1. Publish samples + indexes:
+
+   ```bash frame="terminal"
+   export AWS_PROFILE=sandbox
+   ./scripts/demo.sh publish
+   ```
+
+   ```text
+   downloading sample packages...
+   sample RPM sha256=03d17d980793ae073f6aedea48a71e85f91dcebc1f8bbbe215141606cedc709b
+   sample DEB sha256=e68cf4365b7aa9c4e2af4af6eee1710d6f967059b7b4af62786e8870d7366333
+   using assumed publisher role for s3://ps3p-pkgs-**ACCOUNT**-syd/repos/rpm/…/Packages/…
+   using assumed publisher role for s3://ps3p-pkgs-**ACCOUNT**-syd/repos/deb/…/pool/…
+   EventBridge → arn:aws:lambda:ap-southeast-2:**ACCOUNT**:function:ps3p-rebuild-<suffix> on Packages/*.rpm and pool/*.deb Put
+   waiting for EventBridge rebuild (indexes + catalog)...
+   indexes + signatures + catalog present on primary (packages=2 generated_at=…)
+   waiting for CRR of package + index keys to …-akl ...
+   packages + indexes + signatures replicated to replica
+   publish complete
+   ```
+
+2. Open the catalog URL:
+
+   ```bash frame="terminal"
+   ./scripts/demo.sh open-ui
+   ```
+
+   ```text
+   http://ps3p-ui-**ACCOUNT**-syd.s3-website-ap-southeast-2.amazonaws.com
+   ```
+
+</Steps>
+
+## Verify
+
+```bash frame="terminal"
+PRIMARY="$(jq -r .primary_bucket .lab-state.json)"
+REPLICA="$(jq -r .replica_bucket .lab-state.json)"
+UI="$(jq -r .ui_bucket .lab-state.json)"
+RPM_KEY="$(jq -r .packages.rpm_key .lab-state.json)"
+DEB_KEY="$(jq -r .packages.deb_key .lab-state.json)"
+```
+
+### State
+
+```bash frame="terminal"
+jq '.packages | {rpm_key, deb_key, rpm_name, deb_name, rpm_sha256, deb_sha256}' .lab-state.json
+```
+
+```json
+{
+  "rpm_key": "repos/rpm/al2023/x86_64/Packages/hello-2.12.2-1.el9.x86_64.rpm",
+  "deb_key": "repos/deb/ubuntu/noble/pool/main/h/hello/hello_2.10-3build1_amd64.deb",
+  "rpm_name": "hello",
+  "deb_name": "hello",
+  "rpm_sha256": "03d17d980793ae073f6aedea48a71e85f91dcebc1f8bbbe215141606cedc709b",
+  "deb_sha256": "e68cf4365b7aa9c4e2af4af6eee1710d6f967059b7b4af62786e8870d7366333"
+}
+```
+
+### Primary (Sydney pkgs)
+
+```bash frame="terminal"
+aws s3api head-object --bucket "$PRIMARY" --key "$RPM_KEY" --region ap-southeast-2 \
+  --query '{ContentLength:ContentLength,ReplicationStatus:ReplicationStatus}' --output json
+```
+
+```json
+{ "ContentLength": 86464, "ReplicationStatus": "COMPLETED" }
+```
+
+```bash frame="terminal"
+aws s3api head-object --bucket "$PRIMARY" --key "$DEB_KEY" --region ap-southeast-2 \
+  --query '{ContentLength:ContentLength,ReplicationStatus:ReplicationStatus}' --output json
+```
+
+```json
+{ "ContentLength": 26006, "ReplicationStatus": "COMPLETED" }
+```
+
+```bash frame="terminal"
+aws s3api head-object --bucket "$PRIMARY" --region ap-southeast-2 \
+  --key repos/rpm/al2023/x86_64/repodata/repomd.xml \
+  --query ContentLength --output text
+aws s3api head-object --bucket "$PRIMARY" --region ap-southeast-2 \
+  --key repos/deb/ubuntu/noble/dists/noble/Release \
+  --query ContentLength --output text
+```
+
+```text
+3074
+1454
+```
+
+### Replica (Auckland pkgs)
+
+```bash frame="terminal"
+aws s3api head-object --bucket "$REPLICA" --key "$RPM_KEY" --region ap-southeast-6 \
+  --query '{ContentLength:ContentLength,ReplicationStatus:ReplicationStatus}' --output json
+```
+
+```json
+{ "ContentLength": 86464, "ReplicationStatus": "REPLICA" }
+```
+
+```bash frame="terminal"
+aws s3api head-object --bucket "$REPLICA" --key "$DEB_KEY" --region ap-southeast-6 \
+  --query '{ContentLength:ContentLength,ReplicationStatus:ReplicationStatus}' --output json
+```
+
+```json
+{ "ContentLength": 26006, "ReplicationStatus": "REPLICA" }
+```
+
+```bash frame="terminal"
+aws s3api head-object --bucket "$REPLICA" --region ap-southeast-6 \
+  --key repos/rpm/al2023/x86_64/repodata/repomd.xml \
+  --query ContentLength --output text
+aws s3api head-object --bucket "$REPLICA" --region ap-southeast-6 \
+  --key repos/deb/ubuntu/noble/dists/noble/Release \
+  --query ContentLength --output text
+```
+
+```text
+3074
+1454
+```
+
+### Catalog (UI)
+
+```bash frame="terminal"
+aws s3 cp "s3://${UI}/catalog.json" - --region ap-southeast-2 \
+  | jq '{generated_at, count: (.packages|length), packages: [.packages[] | {name, format, arch, size}]}'
+```
+
+```json
+{
+  "generated_at": "2026-09-05T02:55:12Z",
+  "count": 2,
+  "packages": [
+    { "name": "hello", "format": "deb", "arch": "amd64", "size": 26006 },
+    { "name": "hello", "format": "rpm", "arch": "x86_64", "size": 86464 }
+  ]
+}
+```
+
+<DocImage
+  src="catalog-ui-published.png"
+  alt="Package catalog after publish showing hello deb and hello rpm rows"
+/>
+
+<Aside type="note">
+  Admin SSO can read both package buckets (bypass). Consumer probes prove
+  private <code>dnf</code> / <code>apt</code> installs in the next step with
+  repo metadata GPG checks enabled.
+</Aside>
+
+## Next
+
+[Prove](/deploy-and-operate/prove/)
