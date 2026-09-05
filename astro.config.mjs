@@ -2,9 +2,9 @@ import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import { starlightBasePath } from "starlight-base-path";
 
-// Project Pages until private-s3-pkg-repo.johna.kiwi DNS exists.
-const site = "https://jajera.github.io";
-const base = "/private-s3-pkg-repo/";
+// Custom domain root: https://private-s3-pkg-repo.johna.kiwi
+const site = "https://private-s3-pkg-repo.johna.kiwi";
+const base = "/";
 
 export default defineConfig({
   site,
