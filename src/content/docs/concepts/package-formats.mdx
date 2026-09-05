@@ -1,0 +1,79 @@
+---
+title: Package formats
+description: RPM and deb trees on S3, Lambda indexes, and GPG-signed repo metadata.
+---
+
+import Tooltip from "@/components/Tooltip.astro";
+import { Aside } from "@astrojs/starlight/components";
+import Diagram from "@/components/Diagram.astro";
+import packageLayout from "@/assets/diagrams/package-layout.svg?raw";
+import rebuildSign from "@/assets/diagrams/rebuild-sign.svg?raw";
+
+## Overview
+
+The lab publishes one sample RPM (AL2023 / `dnf`) and one sample deb (Ubuntu
+24.04 / `apt`) under a shared `repos/` prefix. After each Put, the rebuild
+Lambda rebuilds indexes and **signs repo metadata** so consumers can trust the
+tree the usual way (`repo_gpgcheck` / `signed-by`).
+
+## S3 layout
+
+| Format | Tree | Packages | Indexes |
+| ------ | ---- | -------- | ------- |
+| RPM | `repos/rpm/al2023/x86_64/` | `Packages/*.rpm` | `repodata/` (`repomd.xml`, `repomd.xml.asc`, …) |
+| Deb | `repos/deb/ubuntu/noble/` | `pool/main/…/*.deb` | `dists/noble/` (`Packages`, `Release`, `InRelease`, …) |
+
+Publisher IAM is intentionally narrow: Put under `…/Packages/*` and `…/pool/*`
+only. Index objects, signatures, and `catalog.json` are written by the rebuild
+Lambda, not by the publisher role.
+
+<Diagram
+  src={packageLayout}
+  alt="Package bucket layout under repos/: publisher Puts packages; Lambda writes indexes and GPG signatures for RPM and deb trees"
+/>
+
+## Index tools
+
+| Tool | Role |
+| ---- | ---- |
+| <Tooltip term="createrepo" label="createrepo_c" /> | Builds or updates yum/dnf `repodata` for the RPM tree |
+| `apt-ftparchive` | Builds `Packages` / `Packages.gz` and `Release` for the deb tree |
+| `gpg` | Detach-signs `repomd.xml`; clearsigns `Release` → `InRelease` |
+
+Those tools run inside the same rebuild Lambda container image. EventBridge
+triggers the function on `Packages/*.rpm` and `pool/*.deb` Puts to the primary
+(`demo.sh publish` waits for that rebuild). The Lambda writes indexes and
+signatures next to the packages and refreshes `catalog.json` plus the public
+key on the UI bucket (and `repos/gpg/lab-signing.asc` on the package bucket for
+VPCE consumers).
+
+## Metadata signing
+
+Signing is **repo metadata**, not re-signing the sample EPEL/Ubuntu packages:
+
+1. `up-shared` creates a lab GPG keypair. The private key lands in Secrets
+   Manager; the public key is published for consumers (UI bucket / `repos/`).
+2. After indexes are built, the Lambda imports the private key into an ephemeral
+   `GNUPGHOME` under `/tmp`, signs, uploads, and discards the keyring.
+3. Consumers install the public key, then use `repo_gpgcheck=1` (dnf) and
+   `signed-by=` (apt).
+
+That fits the existing function (2048 MB / 300s): signing is milliseconds next to
+S3 sync and index rebuild. A separate signer Lambda is not needed for this lab.
+
+<Diagram
+  src={rebuildSign}
+  alt="Publisher Puts packages to S3; EventBridge invokes rebuild Lambda with Secrets Manager GPG key; Lambda writes signed indexes and updates UI catalog plus public key"
+/>
+
+<Aside type="note">
+  Package-level <code>gpgcheck=1</code> on the sample RPM still depends on the
+  upstream EPEL signature (or a key you import for that). The lab’s guarantee is
+  that <strong>this repo’s metadata</strong> is signed with the lab key.
+</Aside>
+
+<Aside type="note">
+  The catalog viewer lists package metadata from <code>catalog.json</code>. It
+  does not serve rpm/deb downloads; installs still go through the private
+  buckets and gateway VPCEs.
+</Aside>

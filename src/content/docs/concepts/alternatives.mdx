@@ -1,0 +1,35 @@
+---
+title: Alternatives
+description: Why this lab skips Pulp, Transit Gateway, and cross-Region PrivateLink in favour of static rpm/deb trees on S3 with Lambda-rebuilt indexes.
+---
+
+import Tooltip from "@/components/Tooltip.astro";
+
+## Skipped on purpose
+
+| Approach | Why not |
+| -------- | ------- |
+| Transit Gateway Syd↔Akl | Too much cost and plumbing for package GET |
+| Cross-Region PrivateLink to Syd S3 | Not available for `ap-southeast-6` as of Sep 2026; check again before relying on it ([lab findings](/concepts/lab-findings-nz/)) |
+| One Syd bucket + remote readers | Cross-island transfer on every download |
+| CloudFront / public package bucket | Not private |
+| S3 interface VPCE instead of gateway | Extra cost for same-Region S3 |
+| Full Pulp in this lab | Ops surface (Postgres, workers, content apps) is the thing we are avoiding |
+
+## Pulp vs this lab
+
+[Pulp](https://pulpproject.org/) is a real content manager: sync, publish,
+signing workflows, and a full UI. That is the right tool when you need those
+features day to day.
+
+This lab stores **static** rpm/deb trees on S3, rebuilds indexes with
+`createrepo_c` / `apt-ftparchive` in Lambda, and replicates the tree.
+The <Tooltip term="catalog-ui" label="catalog viewer" /> is a thin public page
+over `catalog.json` — browse what was published, not install from the internet,
+and not a stand-in for Pulp’s UI.
+
+## Other options (not this lab)
+
+- A second regional publisher if replication lag is a problem.
+- CodeBuild or a scheduled rebuild if you prefer CI-first indexes over
+  event-driven Lambda.

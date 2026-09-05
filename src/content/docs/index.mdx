@@ -1,0 +1,103 @@
+---
+title: Private S3 Package Repo
+description: CLI lab for private multi-region RPM and deb repos on S3 via regional gateway VPC endpoints.
+template: splash
+hero:
+  tagline: Publish rpm and deb trees to private S3, rebuild indexes, replicate Syd → Akl, and install with dnf and apt through regional gateway endpoints.
+  actions:
+    - text: Get Started
+      link: /concepts/architecture/
+      icon: right-arrow
+      variant: primary
+---
+
+import { Card, CardGrid, Aside } from "@astrojs/starlight/components";
+import Tooltip from "@/components/Tooltip.astro";
+import Diagram from "@/components/Diagram.astro";
+import pulpVsS3 from "@/assets/diagrams/pulp-vs-s3.svg?raw";
+import labArchitecture from "@/assets/diagrams/lab-architecture.svg?raw";
+
+## Why this lab
+
+You want the same private **yum and apt trees** in Sydney and Auckland — packages
+plus `repodata` / `dists`, not plain objects. A full
+[Pulp](https://pulpproject.org/) stack can host those repos, but you own the
+servers, upgrades, and network path. Here S3 holds the rpm and deb layout, a
+Lambda rebuilds indexes after publish, and each consumer VPC reads its
+**local** bucket through a
+<Tooltip term="gateway-vpce" label="gateway VPC endpoint" />.
+
+A separate public <Tooltip term="catalog-ui" label="catalog viewer" /> lists
+what was published. It is read-only metadata (`catalog.json`), not a package
+download CDN and not Pulp’s UI.
+
+Once packages and indexes have replicated, Auckland keeps serving Auckland if
+Sydney is down (and the other way around). That is not full multi-Region
+<Tooltip term="ha" label="HA" />. You still publish to Sydney, replication is
+async so <Tooltip term="rpo" label="RPO" /> is not zero, and anything in a failed
+Region is still down.
+
+<Diagram
+  src={pulpVsS3}
+  alt="Pulp-style HTTP repo versus this lab: both serve Sydney and Auckland package consumers"
+/>
+
+## What you will do
+
+Everything goes through `./scripts/demo.sh`.
+
+<CardGrid>
+  <Card title="Shared buckets + CRR" icon="rocket">
+    Package buckets <code>ps3p-pkgs-…-syd/akl</code>, public UI bucket
+    <code>ps3p-ui-…-syd</code>, replication filtered to <code>repos/</code>.
+  </Card>
+  <Card title="Dual-OS consumers" icon="seti:folder">
+    AL2023 + Ubuntu 24.04 probes per Region, each VPC locked with
+    <Tooltip term="source-vpce" label="aws:SourceVpce" />.
+  </Card>
+  <Card title="Publish + rebuild" icon="approve-check">
+    Put sample rpm/deb under <code>repos/</code>, then Lambda indexes
+    (<Tooltip term="createrepo" label="createrepo_c" /> / apt-ftparchive) and
+    <code>catalog.json</code>.
+  </Card>
+  <Card title="Prove dnf / apt" icon="seti:shell">
+    SSM Run Command installs the samples on both OS probes in Syd and Akl.
+  </Card>
+</CardGrid>
+
+<Diagram
+  src={labArchitecture}
+  alt="Lab architecture: Sydney primary packages, Auckland replica, regional gateway VPCEs, catalog UI"
+/>
+
+| Expectation | Notes |
+| ----------- | ----- |
+| Same package keys | Different regional hostnames |
+| Cross-region installs | Via the replica tree, not cross-Region PrivateLink |
+| Catalog viewer | Public website; packages stay private |
+| Cost while running | S3 + CRR + Lambda/ECR + 4 probe EC2 + SSM endpoints |
+
+<Aside type="caution">
+  This lab costs money until you tear it down. Destroy consumers before you
+  empty the shared buckets if you created SSM interface endpoints.
+</Aside>
+
+## Out of scope
+
+- Full Pulp (or other long-lived repo servers)
+- Public package download from the catalog viewer
+- CodeBuild / schedule-first index rebuild
+
+## Read in this order
+
+1. [Architecture](/concepts/architecture/)
+2. [Package formats](/concepts/package-formats/)
+3. [Lab findings: New Zealand](/concepts/lab-findings-nz/)
+4. [Gateway VPCE](/concepts/gateway-vpce/)
+5. [Replication Syd to Akl](/concepts/crr-syd-akl/)
+6. [Deploy and operate](/deploy-and-operate/prerequisites/)
+
+## References
+
+- [Gateway endpoints](https://docs.aws.amazon.com/vpc/latest/privatelink/gateway-endpoints.html)
+- [S3 replication](https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication.html)

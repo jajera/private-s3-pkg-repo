@@ -1,0 +1,103 @@
+---
+title: Teardown
+description: Destroy consumers, Lambda/UI, GPG secret, empty versioned buckets, delete shared resources.
+---
+
+import { Steps, Aside } from "@astrojs/starlight/components";
+import Checklist from "@/components/Checklist.astro";
+import Diagram from "@/components/Diagram.astro";
+import teardownDiagram from "@/assets/diagrams/teardown.svg?raw";
+
+<Checklist
+  id="teardown"
+  items={[
+    "Lambda / EventBridge / ECR removed (if present)",
+    "UI bucket emptied and deleted",
+    "Consumers and lab VPCs destroyed (both OS probes)",
+    "Secrets Manager GPG signing secret deleted",
+    "Package buckets emptied and deleted",
+    "IAM roles removed; .lab-state.json cleared after verify",
+  ]}
+/>
+
+## Overview
+
+`demo.sh down` tears the lab down in order:
+
+1. Auth check + backup `.lab-state.json` → `.lab-state.json.bak`
+2. EventBridge / rebuild Lambda / ECR
+3. UI bucket
+4. Consumers (both OS probes) and lab VPCs in each Region
+5. GPG signing secret (force-delete)
+6. Package buckets (empty all versions) and shared IAM roles
+7. Verify key resources are gone, then clear state + `.bak`
+
+Confirmation required (`y`). Idempotent re-runs treat already-gone resources
+as success; incomplete teardown keeps state so you can fix and re-run.
+
+<Diagram
+  src={teardownDiagram}
+  alt="Teardown order: Lambda and UI bucket, consumer stacks per Region, GPG secret, then package buckets and roles"
+/>
+
+## Steps
+
+<Steps>
+
+1. Destroy (type `y` when prompted):
+
+   ```bash frame="terminal"
+   export AWS_PROFILE=sandbox
+   ./scripts/demo.sh down
+   ```
+
+   Abbreviated finish:
+
+   ```text
+   Destroy lab resources described in …/.lab-state.json? [y/N] y
+   state backup: …/.lab-state.json.bak
+   … delete-rule / delete-function / delete-repository …
+   emptying ps3p-ui-**ACCOUNT**-syd (ap-southeast-2)
+   tearing down consumer syd in ap-southeast-2
+   tearing down consumer akl in ap-southeast-6
+   … delete-secret … ps3p-gpg-<suffix> … --force-delete-without-recovery
+   emptying ps3p-pkgs-**ACCOUNT**-syd (ap-southeast-2)
+   emptying ps3p-pkgs-**ACCOUNT**-akl (ap-southeast-6)
+   down complete
+   ```
+
+</Steps>
+
+<Aside type="caution">
+  You keep getting billed until teardown finishes. Lab VPCs from
+  <code>up-consumer</code> go away with the rest of the stack.
+</Aside>
+
+## Verify
+
+```bash frame="terminal"
+test ! -f .lab-state.json && test ! -f .lab-state.json.bak && echo "state cleared"
+```
+
+```text
+state cleared
+```
+
+```bash frame="terminal"
+aws s3api head-bucket --bucket ps3p-pkgs-**ACCOUNT**-syd --region ap-southeast-2
+aws s3api head-bucket --bucket ps3p-ui-**ACCOUNT**-syd --region ap-southeast-2
+```
+
+```text
+An error occurred (404) when calling the HeadBucket operation: Not Found
+```
+
+```bash frame="terminal"
+aws lambda get-function --function-name ps3p-rebuild-<suffix> --region ap-southeast-2
+aws secretsmanager describe-secret --secret-id ps3p-gpg-<suffix> --region ap-southeast-2
+```
+
+```text
+An error occurred (ResourceNotFoundException) when calling the GetFunction operation: Function not found: …
+An error occurred (ResourceNotFoundException) when calling the DescribeSecret operation: Secrets Manager can't find the specified secret.
+```

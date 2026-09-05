@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" fill="none" role="img" aria-label="Private S3 Package Repo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#071014"/>
+      <stop offset="1" stop-color="#0b171c"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(180 40) scale(720 520)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="0.16"/>
+      <stop offset="0.6" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="dots" width="26" height="26" patternUnits="userSpaceOnUse">
+      <circle cx="1.3" cy="1.3" r="1.3" fill="#22d3ee" fill-opacity="0.07"/>
+    </pattern>
+  </defs>
+
+  <!-- background -->
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#dots)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <rect x="1" y="1" width="1198" height="628" rx="24" fill="none" stroke="#22d3ee" stroke-opacity="0.18" stroke-width="2"/>
+
+  <!-- eyebrow -->
+  <text x="80" y="150" font-family="Outfit, Segoe UI, sans-serif" font-size="26" font-weight="600"
+        letter-spacing="6" fill="#67e8f9">CLI WALKTHROUGH</text>
+
+  <!-- title -->
+  <text x="78" y="248" font-family="Outfit, Segoe UI, sans-serif" font-size="86" font-weight="800"
+        letter-spacing="-2" fill="#eef8fa">Private S3</text>
+  <text x="78" y="344" font-family="Outfit, Segoe UI, sans-serif" font-size="86" font-weight="800"
+        letter-spacing="-2" fill="#eef8fa">Package Repo</text>
+
+  <!-- tagline -->
+  <text x="80" y="418" font-family="Manrope, Segoe UI, sans-serif" font-size="30" font-weight="500" fill="#b7cdd4">
+    Private multi-region RPM + deb repos via
+  </text>
+  <text x="80" y="460" font-family="Manrope, Segoe UI, sans-serif" font-size="30" font-weight="500" fill="#b7cdd4">
+    regional gateway VPC endpoints, with
+  </text>
+  <text x="80" y="502" font-family="Manrope, Segoe UI, sans-serif" font-size="30" font-weight="500" fill="#b7cdd4">
+    Sydney &#8594; Auckland replication.
+  </text>
+
+  <!-- region motif: two buckets + replication -->
+  <g transform="translate(752 450)">
+    <!-- Sydney bucket -->
+    <g transform="translate(0 0)">
+      <path d="M0 0 h96 l-11 92 a10 10 0 0 1 -10 9 h-54 a10 10 0 0 1 -10 -9 Z"
+            fill="#0a3a45" stroke="#22d3ee" stroke-width="3" stroke-linejoin="round"/>
+      <text x="48" y="132" text-anchor="middle" font-family="Manrope, sans-serif" font-size="22" font-weight="600" fill="#67e8f9">ap-southeast-2</text>
+      <text x="48" y="158" text-anchor="middle" font-family="Manrope, sans-serif" font-size="20" fill="#5a7a86">Sydney</text>
+    </g>
+    <!-- replication arrow -->
+    <g transform="translate(112 44)">
+      <path d="M0 6 h96" stroke="#67e8f9" stroke-width="3" stroke-linecap="round"/>
+      <path d="M78 -10 L100 6 L78 22" fill="none" stroke="#67e8f9" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="48" y="-16" text-anchor="middle" font-family="Manrope, sans-serif" font-size="18" font-weight="600" fill="#67e8f9">CRR</text>
+    </g>
+    <!-- Auckland bucket -->
+    <g transform="translate(224 0)">
+      <path d="M0 0 h96 l-11 92 a10 10 0 0 1 -10 9 h-54 a10 10 0 0 1 -10 -9 Z"
+            fill="#0a3a45" stroke="#67e8f9" stroke-width="3" stroke-linejoin="round"/>
+      <text x="48" y="132" text-anchor="middle" font-family="Manrope, sans-serif" font-size="22" font-weight="600" fill="#67e8f9">ap-southeast-6</text>
+      <text x="48" y="158" text-anchor="middle" font-family="Manrope, sans-serif" font-size="20" fill="#5a7a86">Auckland</text>
+    </g>
+  </g>
+</svg>

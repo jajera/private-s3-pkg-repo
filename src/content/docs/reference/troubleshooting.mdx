@@ -1,0 +1,23 @@
+---
+title: Troubleshooting
+description: Common failures and fixes.
+---
+
+| Symptom | Likely cause | Fix |
+| ------- | ------------ | --- |
+| SSM `PingStatus` not Online on AL2023 or Ubuntu | Missing SSM VPCE / SG / instance profile; agent still starting | Wait a few minutes; confirm both `al2023` and `ubuntu` instance IDs in state |
+| `prove` fails on one OS only | Wrong repo URL / tree for that OS | Confirm regional base URL and `repos/rpm/…` vs `repos/deb/…` paths |
+| `dnf` / `apt` cannot reach the repo | Allowlist missing, wrong Region hostname, or indexes not replicated | Re-run `allowlist`; wait for CRR; use the **local** bucket hostname |
+| `publish` fails: no rebuild_lambda_arn | `up-shared` skipped Lambda (no Docker / image build failed) | Install/start Docker and re-run `up-shared` |
+| Indexes never appear after `publish` | EventBridge rule/path filter or Lambda failure | Confirm rule prefixes `…/Packages/` and `…/pool/`; check CloudWatch logs |
+| Lambda timeout / rebuild failure | Cold start, image, or permission issue | Check CloudWatch logs for the rebuild function; fix and re-run `publish` |
+| Replica never shows packages/indexes | Prefix not `repos/`, or CRR role/policy | Check replication config + IAM; `publish` waits for both packages and indexes |
+| `up-consumer akl` fails: no Ubuntu AMI | Marketplace / SSM param lookup empty in Auckland | Confirm Ubuntu 24.04 AMI availability in `ap-southeast-6`; retry after opt-in / image publish |
+| Akl SSM missing `ec2messages` | Service not offered in Region | Expected; keep `ssm` + `ssmmessages` |
+| `403` from laptop on package URL after allowlist | Expected for anonymous Get | Prove from the probes; signed admin CLI still bypasses |
+| Bucket delete fails | Versions left behind | `demo.sh down` empties all versions (paginated) then deletes |
+| `teardown incomplete` / state kept | Soft delete failure or resource still present | Fix the printed error; re-run `down` (uses `.lab-state.json.bak` if needed) |
+| Auth failed mid-teardown | Credentials / session expired | Refresh login for `AWS_PROFILE`; re-run `down` (state preserved) |
+| `Invalid principal` on bucket policy | New IAM role not visible to S3 yet | `up-shared` retries; wait and re-run if needed |
+| Akl subnet create fails with Syd AZ | Sticky `AWS_REGION` in the shell | Script pins `--region`; unset `AWS_REGION` if you hit an old build |
+| Cross-Region PrivateLink to Akl | Not supported | Use replication + regional gateway |

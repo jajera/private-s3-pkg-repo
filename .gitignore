@@ -1,0 +1,22 @@
+# Local / IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Lab / Astro
+.lab-state.json
+.lab-state.json.bak
+.lab-staging/
+node_modules/
+dist/
+.astro/
+
+# Env and secrets
+.env
+.env.*
+!.env.example
+
+# OS
+Thumbs.db

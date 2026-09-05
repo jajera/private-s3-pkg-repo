@@ -1,0 +1,223 @@
+---
+title: Shared buckets
+description: Package buckets, UI bucket, repos/ CRR, rebuild Lambda, and IAM roles.
+---
+
+import { Steps, Aside } from "@astrojs/starlight/components";
+import Checklist from "@/components/Checklist.astro";
+import Diagram from "@/components/Diagram.astro";
+import DocImage from "@/components/DocImage.astro";
+import sharedBuckets from "@/assets/diagrams/shared-buckets.svg?raw";
+
+<Checklist
+  id="shared-buckets"
+  items={[
+    "Primary + replica package buckets (ps3p-pkgs-…)",
+    "Public catalog UI bucket in Sydney (ps3p-ui-…)",
+    "Versioning and SSE-S3 on package buckets",
+    "Replication role + rule filtered to repos/",
+    "Publisher role (Packages/ + pool/ Put only)",
+    "Rebuild Lambda + ECR image + EventBridge on .rpm/.deb Put",
+  ]}
+/>
+
+## Overview
+
+`demo.sh up-shared` creates the shared account side of the lab (Docker required
+to build the rebuild Lambda image):
+
+| Resource | Region | Notes |
+| -------- | ------ | ----- |
+| `ps3p-pkgs-**ACCOUNT**-syd` | `ap-southeast-2` | Private primary; versioning + SSE-S3 |
+| `ps3p-pkgs-**ACCOUNT**-akl` | `ap-southeast-6` | Private replica; CRR target for `repos/` |
+| `ps3p-ui-**ACCOUNT**-syd` | `ap-southeast-2` | Public website; syncs `catalog-ui/` + seeds `catalog.json` |
+| CRR role + rule `repos-to-akl` | — | Filter prefix `repos/` only |
+| Publisher role | — | Assumable by bypass principal; Put under `…/Packages/*` and `…/pool/*` |
+| Rebuild Lambda (`Image`, 2048 MB / 300s) + ECR `ps3p-rebuild` | `ap-southeast-2` | Env: `PACKAGE_BUCKET`, `UI_BUCKET` |
+| EventBridge rule `ps3p-pkg-put-<suffix>` | `ap-southeast-2` | Object Created for `*.rpm` / `*.deb` on primary |
+
+IDs land in `.lab-state.json` (gitignored). Package-bucket policies start
+**bootstrap-open** for admin, CRR, publisher, and Lambda; [allowlist](/deploy-and-operate/allowlist/)
+locks GetObject to regional gateway VPCEs later. The UI bucket stays public-read
+for the static site (not packages).
+
+<Diagram
+  src={sharedBuckets}
+  alt="Publisher writes to Sydney pkgs primary; rebuild Lambda indexes and updates UI catalog; CRR copies repos/ to Auckland"
+/>
+
+<Aside type="note">
+  <code>up-shared</code> creates a lab GPG key in Secrets Manager, publishes the
+  public key to the UI bucket and <code>repos/gpg/lab-signing.asc</code>, and
+  configures the rebuild Lambda to sign <code>repomd.xml.asc</code> /
+  <code>InRelease</code> on every package Put. See
+  [Package formats](/concepts/package-formats/).
+</Aside>
+
+## Steps
+
+<Steps>
+
+1. Create shared resources:
+
+   ```bash frame="terminal"
+   export AWS_PROFILE=sandbox
+   aws sts get-caller-identity
+   ./scripts/demo.sh up-shared
+   ```
+
+   On success the script prints something like:
+
+   ```text
+   rebuild Lambda ready: arn:aws:lambda:ap-southeast-2:**ACCOUNT**:function:ps3p-rebuild-<suffix>
+   up-shared complete: ps3p-pkgs-**ACCOUNT**-syd → ps3p-pkgs-**ACCOUNT**-akl; ui=http://ps3p-ui-**ACCOUNT**-syd.s3-website-ap-southeast-2.amazonaws.com
+   ```
+
+2. Check state:
+
+   ```bash frame="terminal"
+   ./scripts/demo.sh status
+   ```
+
+   Example shape (account id redacted; suffix is a UTC timestamp):
+
+   ```json
+   {
+     "suffix": "<suffix>",
+     "account_id": "**ACCOUNT**",
+     "name_prefix": "ps3p",
+     "primary_region": "ap-southeast-2",
+     "replica_region": "ap-southeast-6",
+     "repos_prefix": "repos/",
+     "consumers": {},
+     "primary_bucket": "ps3p-pkgs-**ACCOUNT**-syd",
+     "replica_bucket": "ps3p-pkgs-**ACCOUNT**-akl",
+     "ui_bucket": "ps3p-ui-**ACCOUNT**-syd",
+     "ui_website_url": "http://ps3p-ui-**ACCOUNT**-syd.s3-website-ap-southeast-2.amazonaws.com",
+     "crr_role_arn": "arn:aws:iam::**ACCOUNT**:role/ps3p-crr-<suffix>",
+     "publisher_role_arn": "arn:aws:iam::**ACCOUNT**:role/ps3p-publisher-<suffix>",
+     "rebuild_lambda_role_arn": "arn:aws:iam::**ACCOUNT**:role/ps3p-rebuild-<suffix>",
+     "rebuild_lambda_arn": "arn:aws:lambda:ap-southeast-2:**ACCOUNT**:function:ps3p-rebuild-<suffix>",
+     "rebuild_lambda_name": "ps3p-rebuild-<suffix>",
+     "ecr_repository": "ps3p-rebuild",
+     "eventbridge_rule_name": "ps3p-pkg-put-<suffix>",
+     "bypass_principal_arn": "arn:aws:iam::**ACCOUNT**:role/aws-reserved/sso.amazonaws.com/…/AWSReservedSSO_…"
+   }
+   ```
+
+</Steps>
+
+## Verify
+
+Load names from state once:
+
+```bash frame="terminal"
+PRIMARY="$(jq -r .primary_bucket .lab-state.json)"
+REPLICA="$(jq -r .replica_bucket .lab-state.json)"
+UI="$(jq -r .ui_bucket .lab-state.json)"
+UI_URL="$(jq -r .ui_website_url .lab-state.json)"
+LAM="$(jq -r .rebuild_lambda_arn .lab-state.json)"
+```
+
+### Primary (Sydney pkgs)
+
+```bash frame="terminal"
+aws s3api head-bucket --bucket "$PRIMARY" --region ap-southeast-2
+```
+
+```json
+{ "BucketRegion": "ap-southeast-2" }
+```
+
+```bash frame="terminal"
+aws s3api get-bucket-versioning --bucket "$PRIMARY" --region ap-southeast-2
+```
+
+```json
+{ "Status": "Enabled" }
+```
+
+```bash frame="terminal"
+aws s3api get-bucket-replication --bucket "$PRIMARY" --region ap-southeast-2 \
+  --query 'ReplicationConfiguration.Rules[0].{ID:ID,Prefix:Filter.Prefix,Status:Status}'
+```
+
+```json
+{ "ID": "repos-to-akl", "Prefix": "repos/", "Status": "Enabled" }
+```
+
+### Rebuild Lambda (Sydney)
+
+```bash frame="terminal"
+aws lambda get-function --function-name "$LAM" --region ap-southeast-2 \
+  --query 'Configuration.{PackageType:PackageType,Timeout:Timeout,MemorySize:MemorySize}' --output json
+```
+
+```json
+{ "PackageType": "Image", "Timeout": 300, "MemorySize": 2048 }
+```
+
+### Replica (Auckland pkgs)
+
+```bash frame="terminal"
+aws s3api head-bucket --bucket "$REPLICA" --region ap-southeast-6
+```
+
+```json
+{ "BucketRegion": "ap-southeast-6" }
+```
+
+### UI (Sydney catalog website)
+
+```bash frame="terminal"
+aws s3api head-bucket --bucket "$UI" --region ap-southeast-2
+```
+
+```json
+{ "BucketRegion": "ap-southeast-2" }
+```
+
+```bash frame="terminal"
+aws s3api get-bucket-website --bucket "$UI" --region ap-southeast-2
+```
+
+```json
+{
+  "IndexDocument": { "Suffix": "index.html" },
+  "ErrorDocument": { "Key": "index.html" }
+}
+```
+
+```bash frame="terminal"
+aws s3 ls "s3://${UI}/" --region ap-southeast-2
+```
+
+```text
+app.js  catalog.json  favicon.svg  index.html  styles.css
+```
+
+<DocImage
+  src="catalog-ui-bucket-objects.png"
+  alt="S3 console Objects tab for the UI bucket listing app.js, catalog.json, favicon.svg, index.html, and styles.css"
+/>
+
+```bash frame="terminal"
+curl -sS -o /dev/null -w "index %{http_code}\n" "${UI_URL}/"
+curl -sS "${UI_URL}/catalog.json"
+```
+
+```text
+index 200
+{"generated_at":null,"packages":[]}
+```
+
+Empty catalog right after `up-shared` (same walkthrough favicon as the docs site):
+
+<DocImage
+  src="catalog-ui-screenshot.png"
+  alt="Package catalog S3 website showing empty table and No packages published yet"
+/>
+
+## Next
+
+[Consumer](/deploy-and-operate/consumer/)

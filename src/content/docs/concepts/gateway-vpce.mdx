@@ -1,0 +1,33 @@
+---
+title: Gateway VPC endpoint
+description: Why this lab reads the private package buckets through same-Region S3 gateway endpoints.
+---
+
+import Tooltip from "@/components/Tooltip.astro";
+
+## Overview
+
+An S3 <Tooltip term="gateway-vpce" label="gateway VPC endpoint" /> is a
+route-table target, not an ENI. S3 traffic stays on the AWS network. The
+gateway itself has no hourly charge.
+
+## Gateway vs interface
+
+| | Gateway | Interface (PrivateLink) |
+| --- | --- | --- |
+| Cost | No hourly / GB processing for the gateway | Hourly per AZ + data processing |
+| Scope | Same-Region S3 only | Same-Region; cross-Region is a separate feature |
+| Plumbing | Associate route tables | Subnets, security groups, private DNS |
+
+This lab uses gateway endpoints plus
+<Tooltip term="source-vpce" label="aws:SourceVpce" /> on the package bucket
+policy so only allowlisted endpoints can read the repos. `dnf` / `apt` on the
+consumer hosts then pull RPM and deb packages over that path without touching
+the public internet.
+
+## Same-Region only
+
+A Sydney gateway cannot reach the Auckland bucket. Auckland consumers need the
+**replica** package bucket and their own Auckland gateway endpoint. See
+[Replication Sydney → Auckland](/concepts/crr-syd-akl/) and
+[Lab findings: New Zealand](/concepts/lab-findings-nz/).

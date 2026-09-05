@@ -1,0 +1,41 @@
+---
+title: Commands
+description: demo.sh subcommands and required environment.
+---
+
+## demo.sh
+
+```bash frame="terminal"
+./scripts/demo.sh up-shared
+./scripts/demo.sh up-consumer syd|akl
+./scripts/demo.sh allowlist
+./scripts/demo.sh publish
+./scripts/demo.sh open-ui
+./scripts/demo.sh prove syd|akl
+./scripts/demo.sh status
+./scripts/demo.sh down
+```
+
+| Command | What it does |
+| ------- | ------------ |
+| `up-shared` | Package buckets + `repos/` CRR + UI bucket + IAM + rebuild Lambda/ECR |
+| `up-consumer syd\|akl` | Lab VPC, gateway VPCE, SSM endpoints, AL2023 + Ubuntu probes |
+| `allowlist` | Lock package-bucket GetObject to VPCE IDs; UI stays public |
+| `publish` | Download samples, publisher Put; EventBridge rebuild; wait CRR |
+| `open-ui` | Print the public catalog website URL |
+| `prove syd\|akl` | SSM `dnf` + `apt` install on both OS probes |
+| `status` | Dump `.lab-state.json` |
+| `down` | Tear down (confirmation required) |
+
+## Environment
+
+| Name | Required for | Notes |
+| ---- | ------------ | ----- |
+| `AWS_PROFILE` | all | e.g. `sandbox` |
+| `NAME_PREFIX` | optional | Default `ps3p` |
+| `LAB_SUFFIX` | optional | Default timestamp on first `up-shared` |
+
+`up-consumer syd` builds a lab VPC in `ap-southeast-2`. `up-consumer akl` does
+the same in `ap-southeast-6`. Run both before allowlist and prove.
+
+State file: `.lab-state.json` (gitignored).

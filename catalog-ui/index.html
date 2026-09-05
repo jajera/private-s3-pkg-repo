@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>private-s3-pkg-repo catalog</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <p class="brand">private-s3-pkg-repo</p>
+    <h1>Package catalog</h1>
+    <p class="lede">
+      Read-only list from <code>catalog.json</code>. Packages stay on the private
+      S3 buckets; install via lab consumers (gateway VPCE), not this page.
+    </p>
+  </header>
+  <main>
+    <p id="meta" class="meta">Loading…</p>
+    <table id="pkgs">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Format</th>
+          <th>Arch</th>
+          <th>File</th>
+          <th>Size</th>
+          <th>Key</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <p id="empty" class="empty" hidden>No packages published yet.</p>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

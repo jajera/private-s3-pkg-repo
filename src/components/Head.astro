@@ -1,0 +1,47 @@
+---
+/**
+ * Starlight Head override: inject GA4 in production builds only
+ * (matches guides/gitprofile: no analytics during `astro dev`).
+ */
+const { head } = Astro.locals.starlightRoute;
+const gaId = "G-6GP64SX615";
+const enableAnalytics = import.meta.env.PROD;
+
+// Absolute URL for the social preview image (site + base + asset).
+const ogImage = new URL(
+  `${import.meta.env.BASE_URL}og.png`.replace(/\/{2,}/g, "/"),
+  Astro.site,
+).href;
+
+// Drop any og:image / twitter:image Starlight may have injected so ours wins.
+const filteredHead = head.filter(
+  ({ tag, attrs }) =>
+    !(
+      tag === "meta" &&
+      (attrs?.property === "og:image" || attrs?.name === "twitter:image")
+    ),
+);
+---
+
+{filteredHead.map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)}
+
+<meta property="og:image" content={ogImage} />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:image" content={ogImage} />
+
+{
+  enableAnalytics && (
+    <>
+      <script async src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}></script>
+      <script is:inline define:vars={{ gaId }}>
+        window.dataLayer = window.dataLayer || [];
+        function gtag() {
+          dataLayer.push(arguments);
+        }
+        gtag("js", new Date());
+        gtag("config", gaId);
+      </script>
+    </>
+  )
+}

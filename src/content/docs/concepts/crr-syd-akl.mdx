@@ -1,0 +1,33 @@
+---
+title: Replication Sydney → Auckland
+description: Cross-Region Replication copies the repos/ prefix to the Auckland replica.
+---
+
+import Tooltip from "@/components/Tooltip.astro";
+
+## Overview
+
+Publish only to the Sydney primary.
+<Tooltip term="crr" label="Cross-Region Replication" /> copies matching keys to
+Auckland. Consumers there use the replica URL: same key, different hostname.
+
+Both package buckets need **versioning** on. S3 Replication will not enable
+without it.
+
+## Lab defaults
+
+| Setting | Value |
+| ------- | ----- |
+| Source | Primary `ap-southeast-2` |
+| Destination | Replica `ap-southeast-6` |
+| Prefix filter | `repos/` |
+| Versioning | Enabled on both package buckets |
+
+## Notes
+
+- Replication is async. `demo.sh publish` waits until packages **and** indexes
+  answer `HeadObject` on the replica.
+- Because versioning is on, teardown has to delete **all versions** (and delete
+  markers) before the buckets can go away.
+- The replica needs its own Auckland VPCE on the allowlist.
+- The catalog UI bucket is Sydney-only and is **not** replicated.

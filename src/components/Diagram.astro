@@ -1,0 +1,146 @@
+---
+/**
+ * Inline an architecture SVG so page theme tokens can restyle it, with
+ * click-to-expand (same dialog pattern as ThemeDiagram in sibling walkthroughs).
+ * Markdown <img> SVGs are isolated documents and ignore data-theme.
+ */
+interface Props {
+  src: string;
+  alt?: string;
+  class?: string;
+}
+
+const { src, alt = "Architecture diagram", class: className } = Astro.props;
+const html = src.replace(/^\s*<\?xml[^?]*\?>\s*/i, "").trim();
+const dialogId = `arch-diagram-${Math.random().toString(36).slice(2, 9)}`;
+---
+
+<div class:list={["arch-diagram", className]}>
+  <figure class="arch-diagram__figure not-content">
+    <button
+      type="button"
+      class="arch-diagram__trigger"
+      aria-haspopup="dialog"
+      aria-controls={dialogId}
+      aria-label={`Expand diagram: ${alt}`}
+    >
+      <div class="arch-diagram__frame" set:html={html} />
+    </button>
+  </figure>
+
+  <dialog id={dialogId} class="arch-diagram__dialog">
+    <form method="dialog" class="arch-diagram__close-form">
+      <button type="submit" class="arch-diagram__close" aria-label="Close expanded diagram"
+        >Close</button
+      >
+    </form>
+    <div class="arch-diagram__zoomed" set:html={html} />
+  </dialog>
+</div>
+
+<script>
+  function wireArchDiagramZoom() {
+    for (const trigger of document.querySelectorAll(".arch-diagram__trigger")) {
+      if (trigger.dataset.zoomWired) continue;
+      trigger.dataset.zoomWired = "1";
+      const dialogId = trigger.getAttribute("aria-controls");
+      const dialog = dialogId
+        ? (document.getElementById(dialogId) as HTMLDialogElement | null)
+        : null;
+      if (!dialog) continue;
+
+      trigger.addEventListener("click", () => {
+        dialog.showModal();
+      });
+
+      dialog.addEventListener("click", (event) => {
+        if (event.target === dialog) dialog.close();
+      });
+    }
+  }
+
+  wireArchDiagramZoom();
+  document.addEventListener("astro:page-load", wireArchDiagramZoom);
+</script>
+
+<style>
+  .arch-diagram {
+    margin-block: 1.25rem;
+    max-width: 100%;
+  }
+
+  .arch-diagram__figure {
+    margin: 0;
+  }
+
+  .arch-diagram__trigger {
+    display: block;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: transparent;
+    cursor: zoom-in;
+    border-radius: 0.5rem;
+    line-height: 0;
+    text-align: left;
+  }
+
+  .arch-diagram__trigger:focus-visible {
+    outline: 2px solid var(--sl-color-accent);
+    outline-offset: 3px;
+  }
+
+  .arch-diagram__frame :global(svg),
+  .arch-diagram__zoomed :global(svg) {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 100%;
+  }
+
+  .arch-diagram__dialog {
+    width: fit-content;
+    max-width: min(96vw, 1200px);
+    max-height: 96vh;
+    margin: auto;
+    padding: 1rem;
+    border: none;
+    border-radius: 0.75rem;
+    background: var(--sl-color-bg, #fff);
+    box-shadow: 0 16px 48px rgb(0 0 0 / 35%);
+  }
+
+  .arch-diagram__dialog::backdrop {
+    background: rgb(0 0 0 / 72%);
+  }
+
+  .arch-diagram__close-form {
+    display: flex;
+    justify-content: flex-end;
+    margin: 0 0 0.5rem;
+  }
+
+  .arch-diagram__close {
+    cursor: pointer;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 999px;
+    padding: 0.25rem 0.75rem;
+    background: var(--sl-color-bg-nav, #f6f6f6);
+    color: var(--sl-color-text);
+    font: inherit;
+    font-size: 0.875rem;
+  }
+
+  .arch-diagram__zoomed {
+    width: auto;
+    max-width: min(96vw - 2rem, 1200px);
+    max-height: calc(96vh - 3.5rem);
+    overflow: auto;
+  }
+
+  .arch-diagram__zoomed :global(svg) {
+    width: min(96vw - 2rem, 1200px);
+    max-height: calc(96vh - 3.5rem);
+  }
+</style>

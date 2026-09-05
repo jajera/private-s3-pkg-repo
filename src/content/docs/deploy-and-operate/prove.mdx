@@ -1,0 +1,165 @@
+---
+title: Prove
+description: Install via dnf and apt with repo metadata GPG checks on AL2023 and Ubuntu probes.
+---
+
+import { Steps, Aside } from "@astrojs/starlight/components";
+import Checklist from "@/components/Checklist.astro";
+import Diagram from "@/components/Diagram.astro";
+import proveDiagram from "@/assets/diagrams/prove.svg?raw";
+
+<Checklist
+  id="prove"
+  items={[
+    "Syd AL2023: gpg --verify GOODSIG + dnf install",
+    "Syd Ubuntu: InRelease GOODSIG + apt install",
+    "Akl AL2023 + Ubuntu: same against the replica",
+  ]}
+/>
+
+## Overview
+
+`demo.sh prove` uses **SSM Run Command** (no SSH). On each probe it imports the
+lab public key from `repos/gpg/lab-signing.asc` on the **local** package bucket,
+runs `gpg --verify` on signed metadata (`repomd.xml.asc` / `InRelease`), then
+installs with `repo_gpgcheck=1` (dnf) or `signed-by=` (apt). Ubuntu also runs
+`apt-get update` with `Debug::Acquire::gpgv=1` so the verifier is visible.
+
+Keep instance, gateway, and bucket Region matched. Package-level `gpgcheck`
+stays off for the sample EPEL RPM; the lab guarantee is **repo metadata**
+signing.
+
+<Aside type="caution">
+  Probes have <strong>no NAT</strong> — only the S3 gateway (and SSM) VPCEs.
+  Default Amazon Linux / Ubuntu archive repos are unreachable and will hang or
+  time out. After <code>prove</code>, use only the lab repo:
+
+  ```bash
+  # AL2023 — disable every other repo
+  sudo dnf -y --disablerepo='*' --enablerepo=ps3p-lab list available
+  sudo dnf -y --refresh --disablerepo='*' --enablerepo=ps3p-lab install PACKAGE
+
+  # Ubuntu — prove removes /etc/apt/sources.list; only ps3p-lab remains
+  sudo apt-get update
+  sudo apt-get install -y PACKAGE
+  ```
+
+  Use <code>--refresh</code> (or <code>dnf clean metadata</code>) after a new
+  publish so root’s cache picks up new packages. Slowness that looks like
+  “waiting on the internet” usually means a default repo is still enabled.
+</Aside>
+
+<Diagram
+  src={proveDiagram}
+  alt="SSM runs dnf on AL2023 and apt on Ubuntu through the regional S3 gateway VPCE"
+/>
+
+## Steps
+
+```bash frame="terminal"
+export AWS_PROFILE=sandbox
+```
+
+<Steps>
+
+1. Sydney (primary) — AL2023 + Ubuntu:
+
+   ```bash frame="terminal"
+   ./scripts/demo.sh prove syd
+   ```
+
+   AL2023 probe (abbreviated SSM stdout):
+
+   ```text
+   === lab public key ===
+   pub   rsa3072 …
+         <fingerprint>
+   uid                      private-s3-pkg-repo lab <lab@ps3p.example>
+
+   === repo file ===
+   [ps3p-lab]
+   …
+   repo_gpgcheck=1
+   gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-ps3p-lab
+
+   === gpg --verify repomd.xml.asc ===
+   [GNUPG:] GOODSIG … private-s3-pkg-repo lab <lab@ps3p.example>
+   gpg: Good signature from "private-s3-pkg-repo lab <lab@ps3p.example>" [unknown]
+
+   === dnf install (repo_gpgcheck=1) ===
+   Installing:
+    hello          x86_64          2.12.2-1.el9            ps3p-lab           84 k
+   Complete!
+   hello-2.12.2-1.el9.x86_64
+   ```
+
+   Ubuntu probe:
+
+   ```text
+   === lab public key ===
+   pub   rsa3072 …
+         <fingerprint>
+   uid                      private-s3-pkg-repo lab <lab@ps3p.example>
+
+   === sources.list ===
+   deb [signed-by=/etc/apt/keyrings/ps3p-lab.gpg] https://ps3p-pkgs-**ACCOUNT**-syd.s3.ap-southeast-2.amazonaws.com/repos/deb/ubuntu/noble noble main
+
+   === gpg --verify InRelease ===
+   [GNUPG:] GOODSIG … private-s3-pkg-repo lab <lab@ps3p.example>
+
+   === apt-get update (InRelease / gpgv) ===
+   Hit:1 https://ps3p-pkgs-**ACCOUNT**-syd.s3.ap-southeast-2.amazonaws.com/… noble InRelease
+   Got GOODSIG … !
+   gpgv exited with status 0
+   apt-key succeeded
+
+   === apt-get install ===
+   ii  hello          2.10-3build1 amd64        example package based on GNU hello
+
+   prove syd: al2023 + ubuntu Success
+   ```
+
+2. Auckland (replica) — same checks against the CRR tree:
+
+   ```bash frame="terminal"
+   ./scripts/demo.sh prove akl
+   ```
+
+   ```text
+   === gpg --verify repomd.xml.asc ===
+   [GNUPG:] GOODSIG … private-s3-pkg-repo lab <lab@ps3p.example>
+   …
+   === gpg --verify InRelease ===
+   [GNUPG:] GOODSIG … private-s3-pkg-repo lab <lab@ps3p.example>
+   …
+   prove akl: al2023 + ubuntu Success
+   ```
+
+</Steps>
+
+## Verify
+
+```bash frame="terminal"
+jq '{
+  packages: .packages,
+  syd: {al2023: .consumers.syd.al2023.instance_id, ubuntu: .consumers.syd.ubuntu.instance_id},
+  akl: {al2023: .consumers.akl.al2023.instance_id, ubuntu: .consumers.akl.ubuntu.instance_id}
+}' .lab-state.json
+```
+
+<Aside type="note">
+  A “not certified / untrusted key” warning from <code>gpg --verify</code> is
+  expected for a freshly imported key without ownertrust.
+  <code>GOODSIG</code> still means the signature matches the lab key. Apt trusts
+  the key via <code>signed-by=</code> on the keyring file.
+</Aside>
+
+<Aside type="tip">
+  Signed admin CLI from your laptop still works (bypass ARN). Package Get from
+  the public internet should still be 403 after allowlist — installs are meant
+  to go through the probes.
+</Aside>
+
+## Next
+
+[Teardown](/deploy-and-operate/teardown/)
